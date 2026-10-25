@@ -1,5 +1,11 @@
 # 📱 Expense Tracker (Flutter)
 
+[![APK Downloads](https://img.shields.io/github/downloads/GyandeepEkansh/expense-tracker/total?color=2ea44f&label=APK%20Downloads&logo=android)](https://github.com/GyandeepEkansh/expense-tracker/releases)
+[![Visitors](https://komarev.com/ghpvc/?username=GyandeepEkansh-expense-tracker&label=Total%20Visitors&color=0e75b6)](https://github.com/GyandeepEkansh/expense-tracker)
+[![Latest Release](https://img.shields.io/github/v/release/GyandeepEkansh/expense-tracker?color=orange&label=Release)](https://github.com/GyandeepEkansh/expense-tracker/releases)
+[![Live Demo](https://img.shields.io/badge/Demo-Live%20Web%20App-brightgreen?logo=googlechrome)](https://GyandeepEkansh.github.io/expense-tracker/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 A fast, privacy-focused, offline-first mobile expense tracker designed for Indian Rupee (**₹**) with a calendar-centric workflow, visual spending breakdown, and biometric security.
 
 ---
