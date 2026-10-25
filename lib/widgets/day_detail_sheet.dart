@@ -154,7 +154,7 @@ class DayDetailSheet extends StatelessWidget {
                 : ListView.separated(
                     padding: const EdgeInsets.symmetric(vertical: 8),
                     itemCount: expenses.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 8),
+                    separatorBuilder: (_, _) => const SizedBox(height: 8),
                     itemBuilder: (ctx, index) {
                       final exp = expenses[index];
                       final cat = provider.getCategoryById(exp.categoryId);

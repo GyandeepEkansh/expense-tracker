@@ -49,7 +49,10 @@ class _AddExpenseModalState extends State<AddExpenseModal> {
     _selectedDate = widget.expenseToEdit?.date ?? widget.initialDate;
 
     if (_isEditing) {
-      _amountController.text = widget.expenseToEdit!.amount.toStringAsFixed(0);
+      final amt = widget.expenseToEdit!.amount;
+      _amountController.text = amt % 1 == 0
+          ? amt.toInt().toString()
+          : amt.toStringAsFixed(2).replaceAll(RegExp(r'0+$'), '').replaceAll(RegExp(r'\.$'), '');
       _noteController.text = widget.expenseToEdit!.note ?? '';
       _selectedCategoryId = widget.expenseToEdit!.categoryId;
     } else {

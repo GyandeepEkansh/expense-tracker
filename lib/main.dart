@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'providers/expense_provider.dart';
 import 'providers/settings_provider.dart';
 import 'screens/main_shell.dart';
+import 'services/notification_service.dart';
 import 'services/storage_service.dart';
 import 'utils/theme.dart';
 
@@ -19,6 +20,7 @@ void main() async {
   );
 
   final storage = await StorageService.init();
+  await NotificationService().init();
 
   runApp(
     MultiProvider(

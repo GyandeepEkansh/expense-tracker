@@ -278,7 +278,7 @@ class _SummaryScreenState extends State<SummaryScreen> {
                 physics: const NeverScrollableScrollPhysics(),
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                 itemCount: summaries.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 8),
+                separatorBuilder: (_, _) => const SizedBox(height: 8),
                 itemBuilder: (ctx, i) {
                   final item = summaries[i];
                   return Card(

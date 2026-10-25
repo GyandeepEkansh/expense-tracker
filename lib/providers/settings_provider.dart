@@ -1,19 +1,23 @@
 import 'package:flutter/material.dart';
+import '../services/notification_service.dart';
 import '../services/storage_service.dart';
 
 class SettingsProvider with ChangeNotifier {
   final StorageService _storage;
+  final NotificationService _notifications = NotificationService();
 
   late ThemeMode _themeMode;
   late int _firstDayOfWeek;
   late bool _isAppLockEnabled;
-  late String? _appLockPin;
   late int _lockDelayMinutes;
   late bool _isReminderEnabled;
   late String _reminderTime;
 
   bool _isSessionUnlocked = false;
   DateTime? _lastPausedTime;
+
+  int _failedAttempts = 0;
+  DateTime? _lockoutUntil;
 
   SettingsProvider(this._storage) {
     _loadSettings();
@@ -22,11 +26,19 @@ class SettingsProvider with ChangeNotifier {
   ThemeMode get themeMode => _themeMode;
   int get firstDayOfWeek => _firstDayOfWeek;
   bool get isAppLockEnabled => _isAppLockEnabled;
-  bool get hasPinSet => _appLockPin != null && _appLockPin!.isNotEmpty;
+  bool get hasPinSet => _storage.hasAppLockPin();
   int get lockDelayMinutes => _lockDelayMinutes;
   bool get isReminderEnabled => _isReminderEnabled;
   String get reminderTime => _reminderTime;
   String get currencySymbol => '₹';
+
+  bool get isLockedOut =>
+      _lockoutUntil != null && DateTime.now().isBefore(_lockoutUntil!);
+
+  int get remainingLockoutSeconds {
+    if (!isLockedOut) return 0;
+    return _lockoutUntil!.difference(DateTime.now()).inSeconds + 1;
+  }
 
   bool get shouldShowLockScreen {
     if (!_isAppLockEnabled || !hasPinSet) return false;
@@ -48,17 +60,21 @@ class SettingsProvider with ChangeNotifier {
 
     _firstDayOfWeek = _storage.getFirstDayOfWeek();
     _isAppLockEnabled = _storage.isAppLockEnabled();
-    _appLockPin = _storage.getAppLockPin();
     _lockDelayMinutes = _storage.getLockDelayMinutes();
     _isReminderEnabled = _storage.isReminderEnabled();
     _reminderTime = _storage.getReminderTime();
 
-    // If lock is not enabled, session is unlocked by default
     if (!_isAppLockEnabled || !hasPinSet) {
       _isSessionUnlocked = true;
     } else {
       _isSessionUnlocked = false;
     }
+
+    // Schedule notification on startup if enabled
+    if (_isReminderEnabled) {
+      _scheduleCurrentReminder();
+    }
+
     notifyListeners();
   }
 
@@ -83,7 +99,6 @@ class SettingsProvider with ChangeNotifier {
     _isAppLockEnabled = enabled;
     await _storage.setAppLockEnabled(enabled);
     if (pin != null) {
-      _appLockPin = pin;
       await _storage.setAppLockPin(pin);
     }
     if (!enabled) {
@@ -98,28 +113,60 @@ class SettingsProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> setReminder({required bool enabled, String? time}) async {
+  Future<bool> setReminder({required bool enabled, String? time}) async {
     _isReminderEnabled = enabled;
     await _storage.setReminderEnabled(enabled);
     if (time != null) {
       _reminderTime = time;
       await _storage.setReminderTime(time);
     }
-    notifyListeners();
-  }
 
-  bool verifyPin(String enteredPin) {
-    if (_appLockPin == null) return true;
-    if (_appLockPin == enteredPin) {
-      _isSessionUnlocked = true;
+    if (enabled) {
+      final granted = await _notifications.requestPermission();
+      if (granted) {
+        await _scheduleCurrentReminder();
+      }
+      notifyListeners();
+      return granted;
+    } else {
+      await _notifications.cancelDailyReminder();
       notifyListeners();
       return true;
     }
-    return false;
+  }
+
+  Future<void> _scheduleCurrentReminder() async {
+    final parts = _reminderTime.split(':');
+    final hour = int.tryParse(parts[0]) ?? 21;
+    final minute = int.tryParse(parts.length > 1 ? parts[1] : '0') ?? 0;
+    await _notifications.scheduleDailyReminder(hour: hour, minute: minute);
+  }
+
+  bool verifyPin(String enteredPin) {
+    if (isLockedOut) return false;
+
+    final isValid = _storage.verifyPin(enteredPin);
+    if (isValid) {
+      _failedAttempts = 0;
+      _lockoutUntil = null;
+      _isSessionUnlocked = true;
+      notifyListeners();
+      return true;
+    } else {
+      _failedAttempts++;
+      if (_failedAttempts >= 5) {
+        _lockoutUntil = DateTime.now().add(const Duration(seconds: 30));
+        _failedAttempts = 0;
+      }
+      notifyListeners();
+      return false;
+    }
   }
 
   void unlockSession() {
     _isSessionUnlocked = true;
+    _failedAttempts = 0;
+    _lockoutUntil = null;
     notifyListeners();
   }
 

@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'package:share_plus/share_plus.dart';
 import '../providers/expense_provider.dart';
 import '../providers/settings_provider.dart';
+import '../services/file_service.dart';
 import '../widgets/pin_lock_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
@@ -35,16 +34,48 @@ class SettingsScreen extends StatelessWidget {
         title: const Text('Restore from Backup'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Text(
-              'Paste your JSON backup data below. Warning: Restoring will overwrite existing data.',
-              style: TextStyle(fontSize: 13, color: Colors.redAccent),
+            FilledButton.icon(
+              icon: const Icon(Icons.folder_open),
+              label: const Text('Pick Backup File (.json)'),
+              onPressed: () async {
+                final jsonContent = await FileService().pickBackupFile();
+                if (jsonContent != null && jsonContent.isNotEmpty) {
+                  if (ctx.mounted) Navigator.pop(ctx);
+                  if (context.mounted) {
+                    final messenger = ScaffoldMessenger.of(context);
+                    final success = await context
+                        .read<ExpenseProvider>()
+                        .importBackupJson(jsonContent);
+                    if (!context.mounted) return;
+                    messenger.showSnackBar(
+                      SnackBar(
+                        content: Text(success
+                            ? 'Data restored successfully from file!'
+                            : 'Failed to restore: Invalid backup data format.'),
+                        backgroundColor: success ? Colors.green : Colors.red,
+                      ),
+                    );
+                  }
+                }
+              },
+            ),
+            const SizedBox(height: 16),
+            const Row(
+              children: [
+                Expanded(child: Divider()),
+                Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 8),
+                  child: Text('OR PASTE JSON', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                ),
+                Expanded(child: Divider()),
+              ],
             ),
             const SizedBox(height: 12),
             TextField(
               controller: textCtrl,
-              maxLines: 5,
+              maxLines: 4,
               decoration: const InputDecoration(
                 hintText: 'Paste backup JSON here...',
                 border: OutlineInputBorder(),
@@ -76,7 +107,7 @@ class SettingsScreen extends StatelessWidget {
                 }
               }
             },
-            child: const Text('Restore'),
+            child: const Text('Restore from Text'),
           ),
         ],
       ),
@@ -167,8 +198,8 @@ class SettingsScreen extends StatelessWidget {
                     value: settings.firstDayOfWeek,
                     underline: const SizedBox(),
                     items: const [
-                      DropdownMenuItem(value: 1, child: Text('Monday')),
                       DropdownMenuItem(value: 7, child: Text('Sunday')),
+                      DropdownMenuItem(value: 1, child: Text('Monday')),
                     ],
                     onChanged: (val) {
                       if (val != null) settings.setFirstDayOfWeek(val);
@@ -189,7 +220,7 @@ class SettingsScreen extends StatelessWidget {
                   secondary: const Icon(Icons.lock_outline),
                   title: const Text('App Lock'),
                   subtitle: Text(settings.isAppLockEnabled
-                      ? 'Protected by 4-digit PIN'
+                      ? 'Protected by 4-digit PIN / Biometrics'
                       : 'Disabled'),
                   value: settings.isAppLockEnabled,
                   onChanged: (val) {
@@ -248,8 +279,16 @@ class SettingsScreen extends StatelessWidget {
                       ? 'Scheduled daily at ${settings.reminderTime}'
                       : 'Disabled'),
                   value: settings.isReminderEnabled,
-                  onChanged: (val) {
-                    settings.setReminder(enabled: val);
+                  onChanged: (val) async {
+                    final granted = await settings.setReminder(enabled: val);
+                    if (val && !granted && context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                              'Notification permission denied. Please enable in phone settings.'),
+                        ),
+                      );
+                    }
                   },
                 ),
                 if (settings.isReminderEnabled) ...[
@@ -262,7 +301,7 @@ class SettingsScreen extends StatelessWidget {
                         final parts = settings.reminderTime.split(':');
                         final initial = TimeOfDay(
                           hour: int.tryParse(parts[0]) ?? 21,
-                          minute: int.tryParse(parts[1]) ?? 0,
+                          minute: int.tryParse(parts.length > 1 ? parts[1] : '0') ?? 0,
                         );
                         final picked = await showTimePicker(
                           context: context,
@@ -271,7 +310,7 @@ class SettingsScreen extends StatelessWidget {
                         if (picked != null) {
                           final formatted =
                               '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
-                          settings.setReminder(enabled: true, time: formatted);
+                          await settings.setReminder(enabled: true, time: formatted);
                         }
                       },
                       child: Text(
@@ -297,40 +336,36 @@ class SettingsScreen extends StatelessWidget {
               children: [
                 ListTile(
                   leading: const Icon(Icons.file_download_outlined),
-                  title: const Text('Export CSV Report'),
-                  subtitle: const Text('Spreadsheet file of all your expenses'),
+                  title: const Text('Export CSV Report (.csv)'),
+                  subtitle: const Text('Exports real spreadsheet file with all expenses'),
                   trailing: const Icon(Icons.share_outlined),
                   onTap: () async {
                     final csv = expenseProvider.generateCsv();
-                    try {
-                      await Share.share(
-                        csv,
-                        subject: 'Expense_Report_${DateTime.now().toIso8601String().substring(0, 10)}.csv',
+                    final fileName =
+                        'Expense_Report_${DateTime.now().toIso8601String().substring(0, 10)}.csv';
+                    final ok = await FileService().exportCsv(csv, fileName);
+                    if (ok && context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('CSV Report exported successfully!')),
                       );
-                    } catch (_) {
-                      // Fallback: Copy to clipboard
-                      await Clipboard.setData(ClipboardData(text: csv));
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('CSV report copied to clipboard!')),
-                        );
-                      }
                     }
                   },
                 ),
                 const Divider(),
                 ListTile(
                   leading: const Icon(Icons.cloud_upload_outlined),
-                  title: const Text('Backup Data (JSON)'),
-                  subtitle: const Text('Copy full backup payload to secure storage'),
-                  trailing: const Icon(Icons.copy_all_outlined),
+                  title: const Text('Backup Data (.json file)'),
+                  subtitle: const Text('Exports real JSON backup file to save or share'),
+                  trailing: const Icon(Icons.file_upload_outlined),
                   onTap: () async {
                     final jsonString = expenseProvider.exportBackupJson();
-                    await Clipboard.setData(ClipboardData(text: jsonString));
-                    if (context.mounted) {
+                    final fileName =
+                        'ExpenseTracker_Backup_${DateTime.now().toIso8601String().substring(0, 10)}.json';
+                    final ok = await FileService().exportBackupJson(jsonString, fileName);
+                    if (ok && context.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(
-                          content: Text('Complete JSON backup copied to clipboard!'),
+                          content: Text('Backup file exported successfully!'),
                           backgroundColor: Colors.green,
                         ),
                       );
@@ -341,7 +376,7 @@ class SettingsScreen extends StatelessWidget {
                 ListTile(
                   leading: const Icon(Icons.cloud_download_outlined),
                   title: const Text('Restore from Backup'),
-                  subtitle: const Text('Load data from a previously copied backup'),
+                  subtitle: const Text('Pick a .json backup file from storage'),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () => _showRestoreDialog(context),
                 ),

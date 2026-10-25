@@ -148,6 +148,16 @@ class CategoriesScreen extends StatelessWidget {
   }
 
   void _showDeleteCategoryDialog(BuildContext context, ExpenseCategory category) {
+    if (category.id == 'other') {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("The 'Other' category is a permanent fallback and cannot be deleted."),
+          backgroundColor: Colors.amber,
+        ),
+      );
+      return;
+    }
+
     final provider = context.read<ExpenseProvider>();
     final count = provider.getExpenseCountForCategory(category.id);
     final otherCategories =
@@ -177,9 +187,18 @@ class CategoriesScreen extends StatelessWidget {
             ),
             FilledButton(
               style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
-              onPressed: () {
-                provider.deleteCategory(category.id);
-                Navigator.pop(ctx);
+              onPressed: () async {
+                try {
+                  await provider.deleteCategory(category.id);
+                  if (ctx.mounted) Navigator.pop(ctx);
+                } catch (e) {
+                  if (ctx.mounted) Navigator.pop(ctx);
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text(e.toString().replaceAll('Exception: ', ''))),
+                    );
+                  }
+                }
               },
               child: const Text('Delete'),
             ),
@@ -258,15 +277,26 @@ class CategoriesScreen extends StatelessWidget {
               style: FilledButton.styleFrom(
                 backgroundColor: deleteChoice == 1 ? Colors.redAccent : null,
               ),
-              onPressed: () {
-                provider.deleteCategory(
-                  category.id,
-                  moveToCategoryId: deleteChoice == 0 ? selectedMoveTo : null,
-                );
-                Navigator.pop(ctx);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Category "${category.name}" removed.')),
-                );
+              onPressed: () async {
+                try {
+                  await provider.deleteCategory(
+                    category.id,
+                    moveToCategoryId: deleteChoice == 0 ? selectedMoveTo : null,
+                  );
+                  if (ctx.mounted) Navigator.pop(ctx);
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Category "${category.name}" removed.')),
+                    );
+                  }
+                } catch (e) {
+                  if (ctx.mounted) Navigator.pop(ctx);
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text(e.toString().replaceAll('Exception: ', ''))),
+                    );
+                  }
+                }
               },
               child: Text(deleteChoice == 0 ? 'Move & Delete' : 'Delete All'),
             ),
@@ -316,7 +346,7 @@ class CategoriesScreen extends StatelessWidget {
           : ListView.separated(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               itemCount: categories.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 8),
+              separatorBuilder: (_, _) => const SizedBox(height: 8),
               itemBuilder: (ctx, index) {
                 final cat = categories[index];
                 final count = provider.getExpenseCountForCategory(cat.id);
@@ -350,12 +380,13 @@ class CategoriesScreen extends StatelessWidget {
                           onPressed: () =>
                               _showCategoryDialog(context, categoryToEdit: cat),
                         ),
-                        IconButton(
-                          icon: const Icon(Icons.delete_outline,
-                              size: 20, color: Colors.redAccent),
-                          tooltip: 'Delete',
-                          onPressed: () => _showDeleteCategoryDialog(context, cat),
-                        ),
+                        if (cat.id != 'other')
+                          IconButton(
+                            icon: const Icon(Icons.delete_outline,
+                                size: 20, color: Colors.redAccent),
+                            tooltip: 'Delete',
+                            onPressed: () => _showDeleteCategoryDialog(context, cat),
+                          ),
                       ],
                     ),
                   ),

@@ -39,8 +39,8 @@ class ExpenseProvider with ChangeNotifier {
   Expense? get recentlyDeletedExpense => _recentlyDeletedExpense;
 
   void _loadData() {
-    _categories = _storage.loadCategories();
-    _expenses = _storage.loadExpenses();
+    _categories = List<ExpenseCategory>.from(_storage.loadCategories());
+    _expenses = List<Expense>.from(_storage.loadExpenses());
     _lastUsedCategoryId = _storage.getLastUsedCategoryId();
     if (_lastUsedCategoryId == null && _categories.isNotEmpty) {
       _lastUsedCategoryId = _categories.first.id;
@@ -248,6 +248,10 @@ class ExpenseProvider with ChangeNotifier {
     String categoryId, {
     String? moveToCategoryId,
   }) async {
+    if (categoryId == 'other') {
+      throw Exception("The 'Other' category is a system fallback and cannot be deleted.");
+    }
+
     if (_categories.length <= 1) {
       throw Exception("Cannot delete the only remaining category.");
     }

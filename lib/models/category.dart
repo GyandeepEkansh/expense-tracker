@@ -57,12 +57,19 @@ class ExpenseCategory {
     String key = json['iconKey'] as String? ?? 'category';
     if (json['iconCodePoint'] != null && json['iconKey'] == null) {
       final code = json['iconCodePoint'] as int;
-      if (code == 0xe59c) key = 'shopping_cart';
-      else if (code == 0xe1d5) key = 'directions_car';
-      else if (code == 0xe532) key = 'restaurant';
-      else if (code == 0xef64) key = 'receipt_long';
-      else if (code == 0xe59f) key = 'shopping_bag';
-      else if (code == 0xe3e7) key = 'more_horiz';
+      if (code == 0xe59c) {
+        key = 'shopping_cart';
+      } else if (code == 0xe1d5) {
+        key = 'directions_car';
+      } else if (code == 0xe532) {
+        key = 'restaurant';
+      } else if (code == 0xef64) {
+        key = 'receipt_long';
+      } else if (code == 0xe59f) {
+        key = 'shopping_bag';
+      } else if (code == 0xe3e7) {
+        key = 'more_horiz';
+      }
     }
 
     return ExpenseCategory(

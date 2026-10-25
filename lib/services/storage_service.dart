@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:crypto/crypto.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/category.dart';
 import '../models/expense.dart';
@@ -8,12 +9,14 @@ class StorageService {
   static const String _keyCategories = 'expense_tracker_categories_v1';
   static const String _keyThemeMode = 'expense_tracker_theme_mode';
   static const String _keyFirstDayOfWeek = 'expense_tracker_first_day_of_week';
-  static const String _keyAppLockPin = 'expense_tracker_app_lock_pin';
+  static const String _keyAppLockPinHash = 'expense_tracker_app_lock_pin_hash';
   static const String _keyAppLockEnabled = 'expense_tracker_app_lock_enabled';
   static const String _keyLockDelay = 'expense_tracker_lock_delay';
   static const String _keyReminderEnabled = 'expense_tracker_reminder_enabled';
   static const String _keyReminderTime = 'expense_tracker_reminder_time';
   static const String _keyLastUsedCategory = 'expense_tracker_last_used_category';
+
+  static const String _pinSalt = 'expense_tracker_salt_2026_';
 
   final SharedPreferences _prefs;
 
@@ -28,7 +31,7 @@ class StorageService {
   List<ExpenseCategory> loadCategories() {
     final raw = _prefs.getString(_keyCategories);
     if (raw == null || raw.isEmpty) {
-      return ExpenseCategory.defaultCategories;
+      return List<ExpenseCategory>.from(ExpenseCategory.defaultCategories);
     }
     try {
       final list = jsonDecode(raw) as List<dynamic>;
@@ -36,11 +39,11 @@ class StorageService {
           .map((item) => ExpenseCategory.fromJson(item as Map<String, dynamic>))
           .toList();
       if (categories.isEmpty) {
-        return ExpenseCategory.defaultCategories;
+        return List<ExpenseCategory>.from(ExpenseCategory.defaultCategories);
       }
       return categories;
     } catch (_) {
-      return ExpenseCategory.defaultCategories;
+      return List<ExpenseCategory>.from(ExpenseCategory.defaultCategories);
     }
   }
 
@@ -72,19 +75,36 @@ class StorageService {
   String getThemeMode() => _prefs.getString(_keyThemeMode) ?? 'system';
   Future<void> setThemeMode(String mode) => _prefs.setString(_keyThemeMode, mode);
 
-  int getFirstDayOfWeek() => _prefs.getInt(_keyFirstDayOfWeek) ?? 1; // 1 = Monday, 7 = Sunday
+  // Default to 7 (Sunday) to match mockups!
+  int getFirstDayOfWeek() => _prefs.getInt(_keyFirstDayOfWeek) ?? 7;
   Future<void> setFirstDayOfWeek(int day) => _prefs.setInt(_keyFirstDayOfWeek, day);
 
   bool isAppLockEnabled() => _prefs.getBool(_keyAppLockEnabled) ?? false;
   Future<void> setAppLockEnabled(bool enabled) => _prefs.setBool(_keyAppLockEnabled, enabled);
 
-  String? getAppLockPin() => _prefs.getString(_keyAppLockPin);
+  static String hashPin(String pin) {
+    final bytes = utf8.encode('$_pinSalt$pin');
+    return sha256.convert(bytes).toString();
+  }
+
+  bool hasAppLockPin() => _prefs.containsKey(_keyAppLockPinHash);
+
+  String? getAppLockPinHash() => _prefs.getString(_keyAppLockPinHash);
+
   Future<void> setAppLockPin(String? pin) async {
-    if (pin == null) {
-      await _prefs.remove(_keyAppLockPin);
+    if (pin == null || pin.isEmpty) {
+      await _prefs.remove(_keyAppLockPinHash);
     } else {
-      await _prefs.setString(_keyAppLockPin, pin);
+      final hash = hashPin(pin);
+      await _prefs.setString(_keyAppLockPinHash, hash);
     }
+  }
+
+  bool verifyPin(String enteredPin) {
+    final storedHash = getAppLockPinHash();
+    if (storedHash == null) return true;
+    final enteredHash = hashPin(enteredPin);
+    return storedHash == enteredHash;
   }
 
   int getLockDelayMinutes() => _prefs.getInt(_keyLockDelay) ?? 0; // 0 = Immediately, 1 = 1m, 5 = 5m
@@ -100,7 +120,7 @@ class StorageService {
   Future<void> setLastUsedCategoryId(String categoryId) =>
       _prefs.setString(_keyLastUsedCategory, categoryId);
 
-  // --- Full Backup & Restore ---
+  // --- Full Backup & Atomic Restore ---
   Map<String, dynamic> createBackupPayload() {
     return {
       'version': 1,
@@ -110,24 +130,42 @@ class StorageService {
     };
   }
 
+  /// Atomic restore: parses and validates all data in memory first.
+  /// If any error occurs, existing data is untouched.
   Future<bool> restoreFromPayload(Map<String, dynamic> data) async {
     try {
+      List<ExpenseCategory>? validatedCategories;
+      List<Expense>? validatedExpenses;
+
       if (data['categories'] != null) {
         final rawCats = data['categories'] as List<dynamic>;
-        final cats = rawCats
+        validatedCategories = rawCats
             .map((c) => ExpenseCategory.fromJson(c as Map<String, dynamic>))
             .toList();
-        await saveCategories(cats);
       }
+
       if (data['expenses'] != null) {
         final rawExps = data['expenses'] as List<dynamic>;
-        final exps = rawExps
+        validatedExpenses = rawExps
             .map((e) => Expense.fromJson(e as Map<String, dynamic>))
             .toList();
-        await saveExpenses(exps);
+      }
+
+      // If categories were present but parsed empty/invalid, fail safely
+      if (validatedCategories != null && validatedCategories.isEmpty) {
+        return false;
+      }
+
+      // Both validated without throwing! Now write atomically
+      if (validatedCategories != null) {
+        await saveCategories(validatedCategories);
+      }
+      if (validatedExpenses != null) {
+        await saveExpenses(validatedExpenses);
       }
       return true;
     } catch (_) {
+      // Failed during parsing: zero data overwritten!
       return false;
     }
   }

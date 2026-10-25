@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:local_auth/local_auth.dart';
 import 'package:provider/provider.dart';
 import '../providers/settings_provider.dart';
 
@@ -19,12 +20,66 @@ class PinLockScreen extends StatefulWidget {
 }
 
 class _PinLockScreenState extends State<PinLockScreen> {
+  final LocalAuthentication _localAuth = LocalAuthentication();
+  bool _canCheckBiometrics = false;
   String _pin = '';
   String? _firstPin;
   String _errorMessage = '';
   bool _isConfirming = false;
 
+  @override
+  void initState() {
+    super.initState();
+    if (!widget.isSetupMode) {
+      _checkBiometricSupport();
+    }
+  }
+
+  Future<void> _checkBiometricSupport() async {
+    try {
+      final isSupported = await _localAuth.isDeviceSupported();
+      final canCheck = await _localAuth.canCheckBiometrics;
+      if (mounted) {
+        setState(() {
+          _canCheckBiometrics = isSupported && canCheck;
+        });
+      }
+    } catch (_) {
+      // Biometrics not available
+    }
+  }
+
+  Future<void> _authenticateWithBiometrics() async {
+    try {
+      final didAuthenticate = await _localAuth.authenticate(
+        localizedReason: 'Please authenticate to access Expense Tracker',
+        biometricOnly: true,
+        persistAcrossBackgrounding: true,
+      );
+
+      if (didAuthenticate && mounted) {
+        context.read<SettingsProvider>().unlockSession();
+        widget.onUnlocked?.call();
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _errorMessage = 'Biometric authentication failed. Use PIN.';
+        });
+      }
+    }
+  }
+
   void _onKeyPressed(String val) {
+    final settings = context.read<SettingsProvider>();
+    if (settings.isLockedOut) {
+      setState(() {
+        _errorMessage =
+            'Too many failed attempts. Wait ${settings.remainingLockoutSeconds}s';
+      });
+      return;
+    }
+
     if (_pin.length < 4) {
       setState(() {
         _pin += val;
@@ -73,20 +128,47 @@ class _PinLockScreenState extends State<PinLockScreen> {
         widget.onUnlocked?.call();
       } else {
         setState(() {
-          _errorMessage = 'Incorrect PIN';
+          if (settings.isLockedOut) {
+            _errorMessage =
+                'Too many failed attempts. Locked for ${settings.remainingLockoutSeconds}s.';
+          } else {
+            _errorMessage = 'Incorrect PIN';
+          }
           _pin = '';
         });
       }
     }
   }
 
+  void _showForgotPinDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Forgot PIN?'),
+        content: const Text(
+          'For your privacy and security, all expense data is stored offline on this device.\n\n'
+          'To reset your PIN, you will need to uninstall and reinstall the application, then restore your records from a previously exported backup file.',
+          style: TextStyle(fontSize: 14),
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Understood'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final primaryColor = Theme.of(context).primaryColor;
+    final settings = context.watch<SettingsProvider>();
 
     return Scaffold(
-      backgroundColor: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
+      backgroundColor:
+          isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 20.0),
@@ -96,12 +178,12 @@ class _PinLockScreenState extends State<PinLockScreen> {
               // Header
               Column(
                 children: [
-                  const SizedBox(height: 40),
+                  const SizedBox(height: 30),
                   Container(
                     width: 72,
                     height: 72,
                     decoration: BoxDecoration(
-                      color: primaryColor.withOpacity(0.15),
+                      color: primaryColor.withValues(alpha: 0.15),
                       shape: BoxShape.circle,
                     ),
                     child: Icon(
@@ -110,10 +192,12 @@ class _PinLockScreenState extends State<PinLockScreen> {
                       color: primaryColor,
                     ),
                   ),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 20),
                   Text(
                     widget.isSetupMode
-                        ? (_isConfirming ? 'Confirm your 4-digit PIN' : 'Set a 4-digit PIN')
+                        ? (_isConfirming
+                            ? 'Confirm your 4-digit PIN'
+                            : 'Set a 4-digit PIN')
                         : 'Expense Tracker Locked',
                     style: TextStyle(
                       fontSize: 22,
@@ -132,7 +216,7 @@ class _PinLockScreenState extends State<PinLockScreen> {
                       color: isDark ? Colors.grey[400] : Colors.grey[600],
                     ),
                   ),
-                  const SizedBox(height: 32),
+                  const SizedBox(height: 28),
 
                   // PIN Dots
                   Row(
@@ -151,7 +235,9 @@ class _PinLockScreenState extends State<PinLockScreen> {
                           border: Border.all(
                             color: isFilled
                                 ? primaryColor
-                                : (isDark ? Colors.grey[700]! : Colors.grey[400]!),
+                                : (isDark
+                                    ? Colors.grey[700]!
+                                    : Colors.grey[400]!),
                             width: 1.5,
                           ),
                         ),
@@ -159,7 +245,17 @@ class _PinLockScreenState extends State<PinLockScreen> {
                     }),
                   ),
 
-                  if (_errorMessage.isNotEmpty) ...[
+                  if (settings.isLockedOut) ...[
+                    const SizedBox(height: 16),
+                    Text(
+                      'Locked out. Try again in ${settings.remainingLockoutSeconds}s',
+                      style: const TextStyle(
+                        color: Colors.redAccent,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ] else if (_errorMessage.isNotEmpty) ...[
                     const SizedBox(height: 16),
                     Text(
                       _errorMessage,
@@ -173,7 +269,7 @@ class _PinLockScreenState extends State<PinLockScreen> {
                 ],
               ),
 
-              // Keypad
+              // Keypad & Forgot PIN
               Column(
                 children: [
                   for (var row = 0; row < 3; row++)
@@ -183,7 +279,8 @@ class _PinLockScreenState extends State<PinLockScreen> {
                         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                         children: [
                           for (var col = 1; col <= 3; col++)
-                            _buildKeyButton('${row * 3 + col}', isDark, primaryColor),
+                            _buildKeyButton(
+                                '${row * 3 + col}', isDark, primaryColor),
                         ],
                       ),
                     ),
@@ -192,22 +289,18 @@ class _PinLockScreenState extends State<PinLockScreen> {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                       children: [
-                        // Biometrics / placeholder button
+                        // Real biometric button (only shown if device supports and enrolled)
                         SizedBox(
                           width: 72,
                           height: 72,
-                          child: !widget.isSetupMode
+                          child: (!widget.isSetupMode && _canCheckBiometrics)
                               ? IconButton(
                                   icon: Icon(
                                     Icons.fingerprint_rounded,
-                                    size: 32,
+                                    size: 34,
                                     color: primaryColor,
                                   ),
-                                  onPressed: () {
-                                    // Quick unlock simulation for biometric
-                                    context.read<SettingsProvider>().unlockSession();
-                                    widget.onUnlocked?.call();
-                                  },
+                                  onPressed: _authenticateWithBiometrics,
                                 )
                               : const SizedBox.shrink(),
                         ),
@@ -227,7 +320,19 @@ class _PinLockScreenState extends State<PinLockScreen> {
                       ],
                     ),
                   ),
-                  const SizedBox(height: 20),
+
+                  if (!widget.isSetupMode)
+                    TextButton(
+                      onPressed: _showForgotPinDialog,
+                      child: Text(
+                        'Forgot PIN?',
+                        style: TextStyle(
+                          color: isDark ? Colors.grey[400] : Colors.grey[600],
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                  const SizedBox(height: 10),
                 ],
               ),
             ],
@@ -246,7 +351,7 @@ class _PinLockScreenState extends State<PinLockScreen> {
         color: isDark ? const Color(0xFF1E293B) : Colors.white,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
+            color: Colors.black.withValues(alpha: 0.04),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
